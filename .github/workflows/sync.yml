@@ -1,0 +1,110 @@
+name: LinkedIn zu Trello Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "Einmalig ALLE bestehenden Leads neu importieren (ignoriert den letzten Stand)"
+        type: boolean
+        default: false
+      selftest:
+        description: "Nur Vorschau: neuesten Lead durchrechnen, nichts anlegen oder senden"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Privates Automations-Repository auschecken
+        uses: actions/checkout@v4
+        with:
+          repository: OWNER/PRIVATE_REPO
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: private-repo
+          ref: main
+          persist-credentials: false
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Log-Datei vorbereiten
+        working-directory: private-repo
+        shell: bash
+        run: |
+          mkdir -p logs
+
+          TIMESTAMP="$(date -u '+%Y-%m-%dT%H-%M-%SZ')"
+          echo "LOG_FILE=logs/${TIMESTAMP}.log" >> "$GITHUB_ENV"
+
+          {
+            echo "============================================================"
+            echo "LinkedIn Lead Sync"
+            echo "Start: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            echo "============================================================"
+            echo
+          } > "logs/${TIMESTAMP}.log"
+
+      - name: Sync ausfuehren
+        working-directory: private-repo
+        shell: bash
+        env:
+          TRELLO_API_KEY: ${{ secrets.TRELLO_API_KEY }}
+          TRELLO_TOKEN: ${{ secrets.TRELLO_TOKEN }}
+          LINKEDIN_CLIENT_ID: ${{ secrets.LINKEDIN_CLIENT_ID }}
+          LINKEDIN_CLIENT_SECRET: ${{ secrets.LINKEDIN_CLIENT_SECRET }}
+          LINKEDIN_REFRESH_TOKEN: ${{ secrets.LINKEDIN_REFRESH_TOKEN }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          BACKFILL: ${{ github.event.inputs.backfill }}
+          SELFTEST: ${{ github.event.inputs.selftest }}
+        run: |
+          set +e
+
+          python main.py >> "$LOG_FILE" 2>&1
+          EXIT_CODE=$?
+
+          {
+            echo
+            echo "============================================================"
+            echo "Ende: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            echo "Exit-Code: ${EXIT_CODE}"
+            echo "============================================================"
+          } >> "$LOG_FILE"
+
+          echo "SYNC_EXIT_CODE=${EXIT_CODE}" >> "$GITHUB_ENV"
+
+          exit 0
+
+      - name: State und Log ins private Repository committen
+        working-directory: private-repo
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        shell: bash
+        run: |
+          git config user.name "lead-sync-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add state.json "$LOG_FILE"
+
+          if git diff --cached --quiet; then
+            echo "Keine Änderungen zum Committen."
+          else
+            git commit -m "Sync-Stand und Log aktualisiert"
+            git push "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/OWNER/PRIVATE_REPO.git" HEAD:main
+          fi
+
+      - name: Sync-Ergebnis auswerten
+        shell: bash
+        run: |
+          if [ "${SYNC_EXIT_CODE:-1}" -ne 0 ]; then
+            echo "Sync ist mit Exit-Code ${SYNC_EXIT_CODE} fehlgeschlagen."
+            exit "${SYNC_EXIT_CODE}"
+          fi
+
+          echo "Sync erfolgreich abgeschlossen."
