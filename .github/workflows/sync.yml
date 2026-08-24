@@ -23,7 +23,7 @@ jobs:
       - name: Privates Automations-Repository auschecken
         uses: actions/checkout@v4
         with:
-          repository: OWNER/PRIVATE_REPO
+          repository: Benjamin11062001/linkedin-trello-sync
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           path: private-repo
           ref: main
@@ -96,7 +96,7 @@ jobs:
             echo "Keine Änderungen zum Committen."
           else
             git commit -m "Sync-Stand und Log aktualisiert"
-            git push "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/OWNER/PRIVATE_REPO.git" HEAD:main
+            git push "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/Benjamin11062001/linkedin-trello-sync.git" HEAD:main
           fi
 
       - name: Sync-Ergebnis auswerten
